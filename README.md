@@ -9,7 +9,15 @@ Three ways to play each song:
   is judged Perfect / Good / Miss on timing, with a combo counter, a percentage and stars.
 - **Listen**: plays the song so you can hear how it goes, then offers to practise it.
 
-Best scores and stars are remembered per song on each device.
+Also:
+- **Metronome**: switch it on in the song sheet or with the button while playing. The click is pitched
+  so the note detector can't mistake it for a key.
+- **Progress dashboard**: daily goal ring, streaks, minutes per day (14 days), a 12-week practice
+  calendar, an accuracy trend, and a daily motivation (headline reacts to your progress, tip changes daily).
+- **Discover**: search BitMidi's public MIDI archive from inside the app, or import a `.mid` file. Pick
+  which track to play, optionally "Melody only", and it's added to your library.
+
+Best scores, practice history and your library are stored in each device's browser.
 
 ## Architecture
 
@@ -32,8 +40,14 @@ Best scores and stars are remembered per song on each device.
 | `web/js/detector.js` | Per frame: for every note E2–C7, checks for tonal peaks at its harmonics. Returns which notes are sounding (`present`), which were just struck (`onset`), and the most prominent one (`best`). |
 | `web/js/follower.js` | Practice mode. A step is done when each of its notes is *freshly struck*: its level rises 6 dB, so a note still ringing from the last step doesn't count. Also holds `isWrongNote`, the strict "was that really a mistake?" check both modes use. |
 | `web/js/timed.js` | Play along and Listen. Matches each note onset to the nearest expected note within -250/+300 ms (after latency correction), grades it, and counts misses as their windows close. |
-| `web/js/render.js` | Draws falling notes and the keyboard. Yellow = play now, green = heard, red = wrong, purple = what the mic hears. |
-| `web/js/main.js` | Home / practice / done screens, the animation loop, wake lock, sensitivity setting. |
+| `web/js/smooth.js` | Steadies what the screen shows: a key lights only after its note has been heard ~60 ms, stays lit 350 ms, and the "Hearing" name only switches once another note has been loudest for 150 ms. |
+| `web/js/render.js` | Draws falling notes and the keyboard. Yellow = play now, green = heard, red = wrong, purple = what the mic hears. Glow, spark bursts, beat pulse. |
+| `web/js/metronome.js` | Schedules clicks 120 ms ahead on the audio clock, locked to the song's beat grid (accent on beat 1). |
+| `web/js/stats.js` | Practice history: daily minutes, streaks, summaries, daily motivation. |
+| `web/js/dashboard.js` | The Progress screen's tiles and SVG charts, with hover tooltips and a table view. |
+| `web/js/midi.js` | Standard MIDI File parser and MIDI-to-song conversion (track choice, range folding, "skyline" melody extraction). |
+| `web/js/library.js` | The personal song library and BitMidi search/download (BitMidi's API allows browser requests). |
+| `web/js/main.js` | Tabs, sheets, the animation loop, wake lock, settings, wiring everything together. |
 | `tools/song_tool.py` | Converts `.txt` (easy hand-written format) or `.mid` into song JSON and rebuilds `songs/index.json`. |
 | `tools/detector_lab.py` | Python twin of `detector.js` for tuning on recordings. |
 
@@ -113,8 +127,8 @@ default). Raise it if Play along keeps calling you late.
 ## Tests
 
 ```sh
-python -m pytest tools          # detector on simulated piano + reverberant rooms, song tool
-node --test tests/*.test.mjs    # the actual browser detector, practice mode, play-along scoring
+python -m pytest tools          # detector on simulated piano + rooms, metronome clicks, song tool
+node --test tests/*.test.mjs    # browser detector, modes, display smoothing, metronome, stats, MIDI import, library, dashboard
 ```
 
 ## Known limits / next steps
@@ -122,6 +136,9 @@ node --test tests/*.test.mjs    # the actual browser detector, practice mode, pl
 - Songs have no left/right-hand information, so all notes are drawn the same colour.
 - A note played an octave away from the expected one may be accepted (deliberately lenient).
 - Listen mode is quieter on iPhone while the mic is open (iOS routes audio for calls); fine on iPad.
-- Best scores live in each device's browser storage, not in the cloud.
+- Scores, history and the library live in each device's browser storage, not in the cloud, so they
+  don't sync between devices. Clearing Safari's website data erases them.
+- Online songs are full arrangements of varying quality; "Melody only" and choosing a single track help.
+- The metronome assumes 4 beats per bar.
 - No offline support or home-screen icon yet (needs a service worker and a PNG `apple-touch-icon`).
 - Real pianos and rooms vary, so expect to tune with `detector_lab.py` on your friend's piano.

@@ -6,21 +6,41 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#14161c">
+  <meta name="theme-color" content="#0b0d14">
   <link rel="manifest" href="manifest.webmanifest">
   <title>Piano Coach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <main id="home" class="screen">
-    <h1>Piano Coach</h1>
-    <p class="sub">Stand the iPad on the piano and play. It listens to you.</p>
-    <button id="mic-check" class="wide">🎤 Mic check</button>
-    <h2>Songs</h2>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
+  <!-- ============ Songs ============ -->
+  <main id="home" class="screen tab-screen">
+    <header class="brand">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+        <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#logoGrad)"/>
+        <g class="logo-keys"><rect x="14" y="16" width="8" height="32" rx="3"/><rect x="24" y="16" width="8" height="32" rx="3"/><rect x="34" y="16" width="8" height="32" rx="3"/><rect x="44" y="16" width="8" height="32" rx="3"/></g>
+        <g class="logo-black"><rect x="20" y="16" width="6" height="19" rx="2"/><rect x="40" y="16" width="6" height="19" rx="2"/></g>
+      </svg>
+      <div><h1>Piano Coach</h1><p class="sub">Stand your iPad on the piano and play.</p></div>
+    </header>
+
+    <section id="today-card" class="card today-card" aria-live="polite"></section>
+
+    <button id="mic-check" class="ghost-btn wide">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1A7 7 0 0 0 19 12z"/></svg>
+      Mic check
+    </button>
+
+    <div class="section-head"><h2>Your songs</h2><span id="song-count" class="muted"></span></div>
     <ul id="song-list" class="songs"></ul>
 
-    <details class="settings">
+    <details class="settings card">
       <summary>Settings</summary>
       <label>
         Microphone sensitivity: raise it if notes are missed, lower it if it hears notes you didn't play
@@ -34,38 +54,107 @@
     <p id="home-error" class="error" role="alert" hidden></p>
   </main>
 
-  <div id="chooser" class="overlay" hidden>
-    <div class="card" role="dialog" aria-labelledby="chooser-title">
+  <!-- ============ Discover ============ -->
+  <main id="discover" class="screen tab-screen" hidden>
+    <header class="page-head"><h1>Discover</h1><p class="sub">Find songs online and add them to your library.</p></header>
+    <form id="search-form" class="search" role="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/></svg>
+      <input id="search-input" type="search" placeholder="Search, e.g. Fur Elise" autocomplete="off" enterkeyhint="search" aria-label="Search songs">
+      <button class="primary" type="submit">Search</button>
+    </form>
+    <div id="suggest" class="suggest"><span>Popular:</span>
+      <button class="chip" data-query="fur elise">Für Elise</button>
+      <button class="chip" data-query="canon in d">Canon in D</button>
+      <button class="chip" data-query="moonlight sonata">Moonlight Sonata</button>
+      <button class="chip" data-query="happy birthday">Happy Birthday</button>
+      <button class="chip" data-query="tetris">Tetris</button>
+      <button class="chip" data-query="minuet in g">Minuet in G</button>
+    </div>
+    <p id="search-status" class="muted" aria-live="polite"></p>
+    <ul id="search-results" class="results"></ul>
+    <div class="card import-card">
+      <div><h3>Have a MIDI file?</h3><p class="muted">Import a .mid file from this device.</p></div>
+      <label class="ghost-btn">Choose file<input id="file-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden></label>
+    </div>
+    <p class="fine">Online results come from BitMidi, a public archive of MIDI files. Only add songs you're allowed to use; your library is for your own practice and stays on this device.</p>
+  </main>
+
+  <!-- ============ Progress ============ -->
+  <main id="progress" class="screen tab-screen" hidden>
+    <header class="page-head"><h1>Progress</h1><p class="sub">How you've been practising on this device.</p></header>
+    <div id="dashboard"></div>
+    <div id="chart-tip" class="chart-tip" role="tooltip" hidden></div>
+  </main>
+
+  <nav id="tabbar" class="tabbar" aria-label="Sections">
+    <button data-tab="home" class="active" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm12-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/></svg>Songs</button>
+    <button data-tab="discover"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Discover</button>
+    <button data-tab="progress"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Progress</button>
+  </nav>
+
+  <!-- ============ Song sheet ============ -->
+  <div id="chooser" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-labelledby="chooser-title">
+      <div class="grabber" aria-hidden="true"></div>
       <h2 id="chooser-title"></h2>
-      <button class="mode" data-mode="wait">🎯 Practice<small></small></button>
-      <button class="mode" data-mode="timed">⏱️ Play along<small></small></button>
-      <button class="mode" data-mode="listen">🔊 Listen<small></small></button>
+      <p id="chooser-meta" class="muted"></p>
+      <button class="mode" data-mode="wait"><span class="mode-icon" aria-hidden="true">🎯</span><span><b>Practice</b><small></small></span></button>
+      <button class="mode" data-mode="timed"><span class="mode-icon" aria-hidden="true">⏱️</span><span><b>Play along</b><small></small></span></button>
+      <button class="mode" data-mode="listen"><span class="mode-icon" aria-hidden="true">🔊</span><span><b>Listen</b><small></small></span></button>
       <label class="tempo">
-        Speed for Play along &amp; Listen: <span id="tempo-value"></span>
+        <span>Speed <b id="tempo-value"></b></span>
         <input id="tempo" type="range" min="50" max="120" step="5" value="100">
       </label>
-      <button id="chooser-close">Cancel</button>
+      <label class="switch"><input id="metronome" type="checkbox"><span class="track" aria-hidden="true"></span>Metronome</label>
+      <div class="sheet-actions">
+        <button id="remove-song" class="danger" hidden>Remove</button>
+        <button id="chooser-close">Cancel</button>
+      </div>
     </div>
   </div>
 
+  <!-- ============ Import sheet ============ -->
+  <div id="import" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-labelledby="import-heading">
+      <div class="grabber" aria-hidden="true"></div>
+      <h2 id="import-heading">Add to library</h2>
+      <label class="field">Title<input id="import-title" type="text" maxlength="80"></label>
+      <p class="muted">Which part do you want to play?</p>
+      <ul id="import-tracks" class="tracks"></ul>
+      <label class="switch"><input id="import-melody" type="checkbox" checked><span class="track" aria-hidden="true"></span>Melody only (easier)</label>
+      <p id="import-summary" class="muted"></p>
+      <p id="import-error" class="error" role="alert" hidden></p>
+      <div class="sheet-actions">
+        <button id="import-cancel">Cancel</button>
+        <button id="import-add" class="primary">Add to library</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <!-- ============ Playing ============ -->
   <section id="practice" class="screen" hidden>
     <header class="hud">
-      <button id="back">‹ Songs</button>
-      <div class="hud-title"><strong id="song-title"></strong><span id="progress"></span></div>
-      <button id="skip">Skip ›</button>
+      <button id="back" class="icon-btn" aria-label="Back to songs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <div class="hud-title"><strong id="song-title"></strong><span id="progress-text"></span></div>
+      <button id="metro-toggle" class="icon-btn" aria-label="Metronome" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l4 18H5zM12 17l5-9"/></svg></button>
+      <button id="skip" class="pill-btn">Skip</button>
     </header>
     <div class="stage-box"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
     <footer class="status">
-      <span>Hearing: <strong id="heard" aria-live="polite">–</strong></span>
+      <span class="hearing">Hearing <strong id="heard" aria-live="polite">–</strong></span>
+      <span id="beat-dot" class="beat-dot" aria-hidden="true"></span>
       <meter id="level" min="0" max="60" value="0" aria-label="Input level"></meter>
     </footer>
     <div id="done" class="overlay" hidden>
-      <div class="card" role="dialog" aria-labelledby="done-title">
+      <canvas id="confetti" aria-hidden="true"></canvas>
+      <div class="card result-card" role="dialog" aria-labelledby="done-title">
         <h2 id="done-title">Well done!</h2>
-        <p id="done-stars" class="stars"></p>
+        <div id="done-stars" class="stars" role="img"></div>
         <p id="done-best" class="best" hidden>New best!</p>
         <p id="done-stats"></p>
-        <button id="again">Play again</button>
+        <button id="again" class="primary">Play again</button>
         <button id="done-back">Back to songs</button>
       </div>
     </div>

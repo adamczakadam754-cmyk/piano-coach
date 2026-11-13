@@ -35,6 +35,22 @@ export async function startMic(fftSize = 8192) {
     running: () => ctx.state === 'running',
     alive: () => track.readyState === 'live', // iOS ends capture when the app is backgrounded
     resume: () => ctx.resume().catch(() => {}),
+    // Metronome tick: a pure sine with no overtones, pitched a quarter-tone between piano notes
+    // (1520 Hz between F#6/G6, accent 1920 Hz between A#6/B6). A note needs several harmonics,
+    // so the detector can't mistake a tick for a key being played.
+    click(delaySec, accent) {
+      const t0 = ctx.currentTime + delaySec;
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = accent ? 1920 : 1520;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(accent ? 0.3 : 0.18, t0 + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.05);
+      osc.connect(env).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.06);
+    },
     // A simple piano-like tone generator for Listen mode. stop() silences everything it scheduled.
     synth() {
       const out = ctx.createGain();

@@ -64,3 +64,29 @@ def test_reverberant_room_no_ghost_onsets_and_no_misses(seed):
               if any(mm == m and 0 <= t - st <= 0.35 for t, mm in found)}
     assert len(ghosts) <= 1, ghosts
     assert len(played) >= 7  # of the 8 notes
+
+
+def metronome_clicks(n, sr, every=0.5, start=0.1):
+    """The app's metronome tick: 50 ms sine at 1520 Hz (1920 Hz accent on every 4th)."""
+    import numpy as np
+    t = np.arange(int(0.05 * sr)) / sr
+    out = np.zeros(int((start + n * every + 0.5) * sr))
+    for i in range(n):
+        f, amp = (1920, 0.3) if i % 4 == 0 else (1520, 0.18)
+        tick = amp * np.minimum(1, t / 0.002) * np.exp(-t / 0.012) * np.sin(2 * np.pi * f * t)
+        a = int((start + i * every) * sr)
+        out[a:a + len(tick)] += tick
+    return out
+
+
+def test_metronome_clicks_are_not_heard_as_notes():
+    from detector_lab import analyse
+    clicks = metronome_clicks(8, 48000)
+    for gain in (0.3, 1.0):  # quiet and loud speaker
+        assert all(not f.heard and not f.onsets for _, f in analyse(clicks * gain, 48000))
+
+
+def test_metronome_does_not_disturb_playing():
+    samples, sr = synth([(0.2, 0.5, [C4]), (0.8, 0.5, [E4]), (1.4, 0.8, [G4])], seconds=2.6)
+    samples = samples + metronome_clicks(5, sr)[: len(samples)]
+    assert [m for _, m in onsets(list(analyse(samples, sr)))] == [C4, E4, G4]
