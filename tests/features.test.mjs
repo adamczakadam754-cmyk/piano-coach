@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import { createMetronome } from '../web/js/metronome.js';
 import { addSession, dayKey, motivation, streakOf, summarize } from '../web/js/stats.js';
 import { parseMidi, suggestTrack, toSong } from '../web/js/midi.js';
-import { addToLibrary, loadLibrary, prettyName, removeFromLibrary, searchOnline } from '../web/js/library.js';
+import {
+  addToLibrary, didYouMean, downloadMidi, findInLibrary, loadLibrary, matchTitles, prettyName, removeFromLibrary, searchOnline,
+  titleSuggestions,
+} from '../web/js/library.js';
+import { createTimed } from '../web/js/timed.js';
 import { accuracyChart, calendar, minutesChart, renderDashboard } from '../web/js/dashboard.js';
 
 // ---------- metronome ----------
@@ -137,7 +141,9 @@ const memory = () => { const m = {}; return { getItem: k => m[k] ?? null, setIte
 test('library add / remove round-trips', () => {
   const store = memory();
   const song = { title: 'Mine', bpm: 90, steps: [{ t: 0, d: 1, notes: [60] }] };
-  const e = addToLibrary(song, 'file', store);
+  const e = addToLibrary(song, { source: 'bitmidi', url: 'https://bitmidi.com/uploads/9.mid' }, store);
+  assert.equal(findInLibrary('https://bitmidi.com/uploads/9.mid', store).id, e.id); // spots duplicates
+  assert.equal(findInLibrary('https://bitmidi.com/uploads/10.mid', store), null);
   assert.equal(loadLibrary(store).length, 1);
   assert.equal(loadLibrary(store)[0].song.title, 'Mine');
   removeFromLibrary(e.id, store);
@@ -146,7 +152,7 @@ test('library add / remove round-trips', () => {
 
 test('library full is reported clearly', () => {
   const full = { getItem: () => '[]', setItem: () => { throw new Error('QuotaExceededError'); } };
-  assert.throws(() => addToLibrary({ title: 'x', steps: [] }, 'file', full), /library is full/);
+  assert.throws(() => addToLibrary({ title: 'x', steps: [] }, {}, full), /library is full/);
 });
 
 test('online search maps BitMidi results and ignores odd entries', async () => {
@@ -178,4 +184,58 @@ test('dashboard charts render, escape text, and carry hover tooltips', () => {
   renderDashboard(el, s, motivation(s));
   assert.match(el.innerHTML, /Current streak/);
   assert.match(el.innerHTML, /data-goal="10" class="chip active"/);
+});
+
+// ---------- search suggestions ----------
+test('suggestions match the start of words, in any order of typing', () => {
+  const titles = ['Moonlight Sonata', 'Fur Elise', 'Canon in D', 'Clair de Lune'];
+  assert.deepEqual(matchTitles('moon', titles), ['Moonlight Sonata']);
+  assert.deepEqual(matchTitles('son moo', titles), ['Moonlight Sonata']);
+  assert.deepEqual(matchTitles('für', titles), ['Fur Elise']);        // accents ignored
+  assert.deepEqual(matchTitles('c', titles), ['Canon in D', 'Clair de Lune']);
+  assert.deepEqual(matchTitles('xyz', titles), []);
+});
+
+test('did you mean fixes typos but not correct spellings', () => {
+  assert.equal(didYouMean('fur elsie'), 'Fur Elise');
+  assert.equal(didYouMean('moonlite sonata'), 'Moonlight Sonata');
+  assert.equal(didYouMean('jingel bells'), 'Jingle Bells');
+  assert.equal(didYouMean('fur elise'), null);
+  assert.equal(didYouMean('qwertyuiop'), null);
+  assert.equal(didYouMean('ab'), null);
+});
+
+test('title suggestions from results are tidy and de-duplicated', () => {
+  const results = ['Fur Elise', 'Fur Elise 1', 'Fur Elise 2', 'Bagatella Fur Elise', 'Fur Elise Piano Version', 'Elise']
+    .map(title => ({ title }));
+  assert.deepEqual(titleSuggestions(results, 'elise'), ['Fur Elise', 'Bagatella Fur Elise']);
+  const messy = ['Sailor Moon Moon Revenge ()', '149 MOON', '3rd Moon DNA'].map(title => ({ title }));
+  assert.deepEqual(titleSuggestions(messy, 'mo'), ['Sailor Moon Moon Revenge', 'Moon', '3rd Moon DNA']);
+});
+
+test('network failures become a friendly message, and searches are cached', async () => {
+  let calls = 0;
+  const flaky = async () => { calls++; throw new TypeError('Load failed'); };
+  await assert.rejects(searchOnline('cache test a', flaky), /Check your internet connection/);
+  await assert.rejects(searchOnline('cache test a', flaky), /Check your internet/); // failures are not cached
+  assert.equal(calls, 2);
+  const ok = async () => { calls++; return { ok: true, json: async () => ({ result: { results: [] } }) }; };
+  await searchOnline('cache test b', ok);
+  await searchOnline('Cache  Test B', ok); // same words: served from cache
+  assert.equal(calls, 3);
+  await assert.rejects(downloadMidi('https://bitmidi.com/uploads/1.mid', async () => ({ ok: false, status: 503 })), /error 503/);
+});
+
+// ---------- pause ----------
+test('pausing play-along shifts its clock so no notes are missed', () => {
+  const song = { bpm: 60, steps: [{ t: 1, d: 1, notes: [60] }, { t: 2, d: 1, notes: [62] }] }; // first note due at 1 s
+  const s = createTimed(song, { latencyMs: 0, countInBeats: 0 });
+  const quiet = { onsets: [], heard: [], best: null, levelOf: () => 0, isPresent: () => false };
+  s.update(quiet, 0);
+  s.update(quiet, 500);
+  s.shift(60000); // a one-minute pause
+  const events = s.update(quiet, 60600); // 600 ms of song time have passed, not 60.6 s
+  assert.deepEqual(events, []);
+  assert.equal(s.miss, 0);
+  assert.equal(Math.round(s.beat(60600) * 10) / 10, 0.6);
 });

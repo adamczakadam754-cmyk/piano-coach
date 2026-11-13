@@ -24,6 +24,7 @@ export function createTimed(song, { tempo = 1, latencyMs = 130, countInBeats = 4
   let lastExtra = -Infinity;
 
   s.start = now => { s.startedAt = now; };
+  s.shift = ms => { if (s.startedAt !== null) s.startedAt += ms; }; // resume after a pause of `ms`
   s.beat = now => (s.startedAt === null ? -countInBeats : (now - s.startedAt - s.leadMs) / msPerBeat);
 
   function judge(x, grade, events) {

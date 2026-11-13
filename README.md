@@ -15,7 +15,11 @@ Also:
 - **Progress dashboard**: daily goal ring, streaks, minutes per day (14 days), a 12-week practice
   calendar, an accuracy trend, and a daily motivation (headline reacts to your progress, tip changes daily).
 - **Discover**: search BitMidi's public MIDI archive from inside the app, or import a `.mid` file. Pick
-  which track to play, optionally "Melody only", and it's added to your library.
+  which track to play, optionally "Melody only", and it's added to your library. Suggestions appear as
+  you type (well-known pieces instantly, archive titles after a pause), with "did you mean" for typos,
+  recent searches, and songs you already have shown first instead of being added twice.
+- **Pause** (button, Space, or automatically when you leave the app), **Start again**, **Next song**.
+- **Works offline** once opened, with a proper home-screen icon (`tools/make_icons.py` draws it).
 
 Best scores, practice history and your library are stored in each device's browser.
 
@@ -46,7 +50,8 @@ Best scores, practice history and your library are stored in each device's brows
 | `web/js/stats.js` | Practice history: daily minutes, streaks, summaries, daily motivation. |
 | `web/js/dashboard.js` | The Progress screen's tiles and SVG charts, with hover tooltips and a table view. |
 | `web/js/midi.js` | Standard MIDI File parser and MIDI-to-song conversion (track choice, range folding, "skyline" melody extraction). |
-| `web/js/library.js` | The personal song library and BitMidi search/download (BitMidi's API allows browser requests). |
+| `web/js/library.js` | The personal song library, BitMidi search/download (BitMidi's API allows browser requests), search cache, suggestions and "did you mean". |
+| `web/sw.js` | Service worker: network-first for the app's files (fresh online, cached offline), cache-first for fonts. |
 | `web/js/main.js` | Tabs, sheets, the animation loop, wake lock, settings, wiring everything together. |
 | `tools/song_tool.py` | Converts `.txt` (easy hand-written format) or `.mid` into song JSON and rebuilds `songs/index.json`. |
 | `tools/detector_lab.py` | Python twin of `detector.js` for tuning on recordings. |
@@ -80,21 +85,26 @@ Open http://localhost:8000 in Chrome or Edge. The mic works on `localhost` witho
 Use **Mic check** and play notes (a piano app on your phone works) to see what the detector hears.
 `python tools/detector_lab.py --demo` shows the detector on a simulated piano in a reverberant room.
 
-## Put it on the iPad (free)
+## Install it on an iPad or iPhone
 
-1. Create a GitHub account and a new **public** repo, e.g. `piano-coach`.
-2. In this folder:
-   ```sh
-   git init -b main
-   git add .
-   git commit -m "Piano Coach"
-   git remote add origin https://github.com/<you>/piano-coach.git
-   git push -u origin main
-   ```
-3. On GitHub: **Settings → Pages → Source: GitHub Actions**. The included workflow publishes `web/`
-   to `https://<you>.github.io/piano-coach/` on every push.
-4. On the iPad, open that link in **Safari**, then **Share → Add to Home Screen**. It now opens full-screen like an app.
-5. First tap on a song asks for the microphone. Allow it.
+**Link:** https://adamczakadam754-cmyk.github.io/piano-coach/
+
+1. Open the link in **Safari** (it must be Safari: Chrome/Firefox on iOS can't add web apps with the mic).
+2. Tap **Share** (square with an up-arrow: top right on iPad, bottom middle on iPhone).
+3. Scroll and tap **Add to Home Screen**, then **Add**. (On iOS 18+ it may be under **More (…)**.)
+4. Open **Piano Coach** from the home screen. It runs full screen with its own icon.
+5. Tap **Mic check** and **Allow** the microphone.
+
+It works offline after the first visit (the app saves itself on the device), so it opens at the piano
+without Wi-Fi. Searching for new songs needs internet. Updates arrive automatically next time it's
+opened online.
+
+**If the microphone was refused:** Settings → Apps → Safari → Microphone → Allow (or Ask), then reopen.
+**Removing it:** press and hold the icon → Remove App. Scores and history are deleted with it.
+
+### Publishing your own copy
+The included GitHub Actions workflow publishes `web/` to GitHub Pages on every push to `main`
+(Settings → Pages → Source: GitHub Actions). HTTPS is required for the microphone; Pages provides it.
 
 ## Add songs
 

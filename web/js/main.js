@@ -10,7 +10,10 @@ import { createMetronome } from './metronome.js';
 import { addSession, dayKey, motivation, summarize } from './stats.js';
 import { renderDashboard } from './dashboard.js';
 import { parseMidi, suggestTrack, toSong } from './midi.js';
-import { addToLibrary, downloadMidi, loadLibrary, removeFromLibrary, searchOnline } from './library.js';
+import {
+  CATALOG, addToLibrary, didYouMean, downloadMidi, findInLibrary, loadLibrary, matchTitles, normalize, removeFromLibrary,
+  searchOnline, titleSuggestions,
+} from './library.js';
 import { noteName } from './notes.js';
 
 const $ = id => document.getElementById(id);
@@ -89,6 +92,7 @@ setMetronome(metronomeOn());
 
 function applySettings() {
   const s = Number($('sensitivity').value);
+  setText($('sensitivity-value'), s === 0 ? '0 (default)' : s > 0 ? `+${s} (more sensitive)` : `${s} (less sensitive)`);
   setText($('latency-value'), `${$('latency').value} ms`);
   setText($('tempo-value'), `${$('tempo').value}%`);
   if (!detector) return;
@@ -131,8 +135,13 @@ function renderHome() {
   badge.append(el('b', '', String(sum.streak)), el('small', '', 'streak'));
   $('today-card').replaceChildren(ring, text, badge);
 
-  const songs = allSongs();
-  setText($('song-count'), `${songs.length} songs`);
+  const all = allSongs();
+  setText($('song-count'), `${all.length} songs`);
+  $('song-filter').hidden = all.length <= 8; // only worth it once the library grows
+  const filter = $('song-filter').hidden ? '' : $('song-filter').value;
+  const songs = filter ? all.filter(s => matchTitles(filter, [s.title]).length) : all;
+  $('song-empty').hidden = songs.length > 0;
+  $('song-empty').textContent = `No songs match “${filter}”. Find more in Discover.`;
   $('song-list').replaceChildren(...songs.map((s, i) => {
     const stars = Math.max(getBest(s.id, 'wait')?.stars ?? 0, getBest(s.id, 'timed')?.stars ?? 0);
     const btn = el('button', 'song');
@@ -168,6 +177,8 @@ function openChooser(entry) {
   $('chooser').hidden = false;
 }
 
+$('song-filter').addEventListener('input', renderHome);
+
 async function loadSongs() {
   try {
     builtIn = (await fetchJson('songs/index.json')).map(s => ({ id: s.file, title: s.title, steps: s.steps }));
@@ -194,30 +205,161 @@ function showTip(e) {
   $('chart-tip').hidden = false;
 }
 $('dashboard').addEventListener('pointermove', showTip);
-$('dashboard').addEventListener('pointerdown', showTip);
+$('dashboard').addEventListener('pointerup', showTip); // after the document handler that hides it
 $('dashboard').addEventListener('pointerleave', () => { $('chart-tip').hidden = true; });
 
 // ---------- discover: online search and MIDI import ----------
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5"/></svg>';
+const SONG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></svg>';
+let searchSeq = 0;   // only the newest search may write results (an older, slower one must not)
+let suggestSeq = 0;
+let suggestTimer = 0;
+
+function runSearch(q) {
+  $('search-input').value = q;
+  hideSuggestions();
+  if ($('search-form').requestSubmit) $('search-form').requestSubmit();
+  else $('search-form').dispatchEvent(new Event('submit', { cancelable: true }));
+}
+
+const recentSearches = () => savedJson('recent', []);
+function rememberSearch(q) {
+  save('recent', JSON.stringify([q, ...recentSearches().filter(r => normalize(r) !== normalize(q))].slice(0, 6)));
+  renderRecent();
+}
+function renderRecent() {
+  const recent = recentSearches();
+  $('recent').hidden = !recent.length;
+  const clear = el('button', 'chip clear', 'Clear');
+  clear.addEventListener('click', () => { save('recent', '[]'); renderRecent(); });
+  $('recent').replaceChildren(el('span', '', 'Recent:'), ...recent.map(q => {
+    const b = el('button', 'chip', q);
+    b.addEventListener('click', () => runSearch(q));
+    return b;
+  }), clear);
+}
+
+// The typed words in bold inside a suggestion, without using innerHTML on untrusted text.
+function highlighted(text, query) {
+  const words = normalize(query).split(' ').filter(Boolean);
+  const frag = el('span');
+  for (const part of text.split(/(\s+)/)) {
+    const w = words.find(q => normalize(part).startsWith(q));
+    if (w && part.trim()) {
+      frag.append(el('mark', '', part.slice(0, w.length)), part.slice(w.length));
+    } else frag.append(part);
+  }
+  return frag;
+}
+
+function suggestionButton(text, query, icon, onPick, note) {
+  const b = el('button', 'sugg-item');
+  b.type = 'button';
+  b.setAttribute('role', 'option');
+  b.innerHTML = icon;
+  b.append(highlighted(text, query));
+  if (note) b.append(el('small', '', note));
+  b.addEventListener('click', onPick); // the list hides 200 ms after the input blurs, so taps land first
+  return b;
+}
+
+function renderSuggestions(q, live = []) {
+  const box = $('suggestions');
+  const mine = matchTitles(q, allSongs().map(s => s.title), 3);
+  const known = matchTitles(q, CATALOG, 5);
+  const seen = new Set([...mine, ...known].map(normalize));
+  const fromArchive = live.filter(t => !seen.has(normalize(t))).slice(0, 4);
+  const items = [];
+  if (mine.length) {
+    items.push(el('div', 'sugg-head', 'Already in your songs'));
+    for (const t of mine) {
+      items.push(suggestionButton(t, q, SONG_ICON, () => {
+        hideSuggestions();
+        showTab('home');
+        openChooser(allSongs().find(s => s.title === t));
+      }, 'Play'));
+    }
+  }
+  if (known.length || fromArchive.length) {
+    items.push(el('div', 'sugg-head', 'Search for'));
+    for (const t of [...known, ...fromArchive]) items.push(suggestionButton(t, q, SEARCH_ICON, () => runSearch(t)));
+  }
+  if (!items.length) {
+    const guess = didYouMean(q);
+    if (guess) {
+      items.push(el('div', 'sugg-head', 'Did you mean'));
+      items.push(suggestionButton(guess, guess, SEARCH_ICON, () => runSearch(guess)));
+    }
+  }
+  box.replaceChildren(...items);
+  box.hidden = !items.length;
+}
+
+function hideSuggestions() {
+  clearTimeout(suggestTimer);
+  suggestSeq++;
+  $('suggestions').hidden = true;
+}
+
+$('search-input').addEventListener('input', () => {
+  const q = $('search-input').value.trim();
+  clearTimeout(suggestTimer);
+  if (q.length < 2) { hideSuggestions(); return; }
+  renderSuggestions(q); // instant: your songs + well-known titles
+  if (q.length < 3 || navigator.onLine === false) return;
+  const seq = ++suggestSeq;
+  suggestTimer = setTimeout(async () => { // then names from the archive, once typing pauses
+    try {
+      const results = await searchOnline(q);
+      if (seq === suggestSeq && document.activeElement === $('search-input')) renderSuggestions(q, titleSuggestions(results, q));
+    } catch { /* suggestions are optional */ }
+  }, 350);
+});
+$('search-input').addEventListener('focus', () => { if ($('search-input').value.trim().length >= 2) $('search-input').dispatchEvent(new Event('input')); });
+$('search-input').addEventListener('blur', () => setTimeout(hideSuggestions, 200));
+
 $('search-form').addEventListener('submit', async e => {
   e.preventDefault();
   const q = $('search-input').value.trim();
   if (!q) return;
+  hideSuggestions();
+  $('search-input').blur(); // put the iPad keyboard away so results are visible
+  const seq = ++searchSeq;
   $('search-status').innerHTML = '<span class="spinner"></span> Searching…';
   $('search-results').replaceChildren();
   try {
     const results = await searchOnline(q);
-    $('search-status').textContent = results.length ? `${results.length} results for “${q}”` : `Nothing found for “${q}”. Try other words.`;
+    if (seq !== searchSeq) return;
+    rememberSearch(q);
+    if (results.length) {
+      $('search-status').textContent = `${results.length} results for “${q}”`;
+    } else {
+      $('search-status').textContent = `Nothing found for “${q}”.`;
+      const guess = didYouMean(q);
+      if (guess) {
+        const b = el('button', 'chip did-you-mean', `Try “${guess}”`);
+        b.addEventListener('click', () => runSearch(guess));
+        $('search-status').append(b);
+      } else $('search-status').append(' Try fewer or different words.');
+    }
     $('search-results').replaceChildren(...results.map((r, i) => {
       const li = el('li', 'result');
       li.style.setProperty('--i', i);
       const info = el('div');
       info.append(el('b', '', r.title), el('small', '', `${r.plays.toLocaleString()} plays`));
-      const add = el('button', 'primary', 'Add');
+      const have = findInLibrary(r.url);
+      const add = el('button', have ? '' : 'primary', have ? 'Open' : 'Add');
       add.addEventListener('click', async () => {
+        const existing = findInLibrary(r.url);
+        if (existing) { // already added: no duplicates, just open it
+          showTab('home');
+          openChooser(allSongs().find(s => s.id === existing.id));
+          return;
+        }
         add.disabled = true;
         add.innerHTML = '<span class="spinner"></span>';
         try {
-          beginImport(parseMidi(await downloadMidi(r.url)), r.title, 'bitmidi');
+          beginImport(parseMidi(await downloadMidi(r.url)), r.title, 'bitmidi', r.url);
         } catch (err) {
           toast(err.message);
         } finally {
@@ -229,17 +371,15 @@ $('search-form').addEventListener('submit', async e => {
       return li;
     }));
   } catch (err) {
+    if (seq !== searchSeq) return;
     $('search-status').textContent = navigator.onLine === false ? 'You are offline. Connect to the internet to search.' : err.message;
   }
 });
 
 for (const chip of document.querySelectorAll('[data-query]')) {
-  chip.addEventListener('click', () => {
-    $('search-input').value = chip.dataset.query; // plain ASCII: the archive's names rarely have accents
-    if ($('search-form').requestSubmit) $('search-form').requestSubmit();
-    else $('search-form').dispatchEvent(new Event('submit', { cancelable: true }));
-  });
+  chip.addEventListener('click', () => runSearch(chip.dataset.query)); // plain ASCII: archive names rarely have accents
 }
+renderRecent();
 
 $('file-input').addEventListener('change', async () => {
   const file = $('file-input').files?.[0];
@@ -252,10 +392,10 @@ $('file-input').addEventListener('change', async () => {
   $('file-input').value = '';
 });
 
-function beginImport(midi, title, source) {
+function beginImport(midi, title, source, url = null) {
   const playable = midi.tracks.map((t, i) => ({ ...t, i })).filter(t => t.notes.length);
   if (!playable.length) throw new Error('This MIDI file has no notes.');
-  pendingImport = { midi, source };
+  pendingImport = { midi, source, url };
   $('import-title').value = title.slice(0, 80);
   const suggested = suggestTrack(midi);
   $('import-tracks').replaceChildren(...playable.map(t => {
@@ -304,7 +444,7 @@ $('import-add').addEventListener('click', () => {
   try {
     const opts = importOptions();
     if (!opts.tracks.length) throw new Error('Pick at least one track.');
-    const entry = addToLibrary(toSong(pendingImport.midi, opts), pendingImport.source);
+    const entry = addToLibrary(toSong(pendingImport.midi, opts), { source: pendingImport.source, url: pendingImport.url });
     $('import').hidden = true;
     pendingImport = null;
     toast(`Added “${entry.title}” to your songs`);
@@ -319,6 +459,7 @@ $('import-add').addEventListener('click', () => {
 $('remove-song').addEventListener('click', () => {
   if (!chosen?.library || !confirm(`Remove “${chosen.title}” from your library?`)) return;
   removeFromLibrary(chosen.id);
+  for (const m of Object.keys(MODES)) { try { localStorage.removeItem(`best:${chosen.id}:${m}`); } catch { /* fine */ } }
   $('chooser').hidden = true;
   toast('Removed from your library');
   renderHome();
@@ -351,6 +492,8 @@ async function open(entry, mode) {
 
 function play(mode, song, entry) {
   view?.synth?.stop();
+  mic.resume(); // we are inside a tap; also undoes a pause's suspend
+  $('paused').hidden = true;
   const tempo = Number($('tempo').value) / 100;
   const timedOpts = { tempo, latencyMs: Number($('latency').value), countInBeats: mode === 'listen' ? 2 : 4, auto: mode === 'listen' };
   const session = mode === 'wait' ? createFollower(song) : song ? createTimed(song, timedOpts) : null;
@@ -370,6 +513,7 @@ function play(mode, song, entry) {
     synth: null,
     activeMs: 0,
     recorded: false,
+    paused: null,
     lastTime: now,
     lastDetect: -Infinity,
   };
@@ -381,12 +525,44 @@ function play(mode, song, entry) {
   $('song-title').textContent = song ? `${song.title} · ${MODES[mode].name}` : 'Mic check';
   $('skip').hidden = mode !== 'wait';
   $('metro-toggle').hidden = !song;
+  $('pause').hidden = !song;
   for (const id of ['done', 'chooser', 'home-error', 'home', 'discover', 'progress']) $(id).hidden = true;
   $('tabbar').hidden = true;
   $('practice').hidden = false;
   keepAwake();
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(tick);
+}
+
+// ---------- pause ----------
+// Play along and Listen run on a clock: pausing stops the clock (and the audio engine, which
+// freezes Listen's scheduled notes and the metronome exactly where they are).
+function pause() {
+  const v = view;
+  if (!v?.song || v.paused || v.session.done) return;
+  v.paused = { at: performance.now() };
+  cancelAnimationFrame(raf);
+  if (v.mode !== 'wait') mic.suspend();
+  $('paused').hidden = false;
+}
+
+function resume() {
+  const v = view;
+  if (!v?.paused) return;
+  const gap = performance.now() - v.paused.at;
+  v.paused = null;
+  mic.resume();
+  v.session.shift?.(gap);
+  v.startedAt += gap;
+  v.lastTime = performance.now();
+  v.metronome.reset();
+  $('paused').hidden = true;
+  raf = requestAnimationFrame(tick);
+}
+
+function restart() {
+  recordSession(null);
+  play(view.mode, view.song, view.entry);
 }
 
 // ---------- the loop ----------
@@ -505,6 +681,10 @@ function showDone() {
   const isBest = score !== null && entry && (!prev || score > prev.score);
   if (isBest) save(`best:${entry.id}:${mode}`, JSON.stringify({ score, stars }));
   $('done-best').hidden = !(isBest && prev);
+  const songs = allSongs();
+  const next = songs[songs.findIndex(s => s.id === entry?.id) + 1];
+  $('next-song').hidden = !entry || !next;
+  if (next) $('next-song').textContent = `Next: ${next.title}`;
   $('done').hidden = false;
   if (stars >= 2 && !reducedMotion) confetti();
 }
@@ -547,6 +727,8 @@ function goHome() {
   recordSession(null); // an unfinished session still counts as practice time
   cancelAnimationFrame(raf);
   view?.synth?.stop();
+  if (view?.paused) mic?.resume();
+  $('paused').hidden = true;
   wakeLock?.release();
   wakeLock = null;
   view = null;
@@ -567,20 +749,60 @@ $('again').addEventListener('click', () => {
   recordSession(null);
   play(view.mode === 'listen' ? 'wait' : view.mode, view.song, view.entry);
 });
+$('next-song').addEventListener('click', () => {
+  const songs = allSongs();
+  const next = songs[songs.findIndex(s => s.id === view.entry?.id) + 1];
+  if (next) open(next, view.mode);
+});
 $('skip').addEventListener('click', () => {
   if (view?.mode === 'wait') handle(view.session.skip(view.frame, performance.now()), performance.now());
 });
+$('pause').addEventListener('click', pause);
+$('resume').addEventListener('click', resume);
+$('restart').addEventListener('click', restart);
+$('paused-back').addEventListener('click', goHome);
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !view) return;
+  if (!view) return;
+  if (document.visibilityState === 'hidden') { pause(); return; } // don't let the song run on without you
   if (!mic.alive()) { // iOS stopped the microphone while we were in the background
     goHome();
     resetMic();
     showError(new Error('The microphone was switched off while the app was in the background. Tap a song to start again.'));
     return;
   }
-  mic.resume(); // iOS suspends audio in the background
-  keepAwake();  // and drops the wake lock
+  if (!view.paused) mic.resume(); // iOS suspends audio in the background
+  keepAwake();                     // and drops the wake lock
 });
-// If iOS refused to start audio without a tap, any tap starts it.
-document.addEventListener('pointerdown', () => { if (mic && !mic.running()) mic.resume(); });
+// If iOS refused to start audio without a tap, any tap starts it (but not while paused on purpose).
+document.addEventListener('pointerdown', e => {
+  if (mic && !mic.running() && !view?.paused) mic.resume();
+  if (!e.target?.closest?.('[data-tip]')) $('chart-tip').hidden = true;
+});
+
+// Keyboard (iPad keyboards, laptops): Escape closes things, Space pauses.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (!$('suggestions').hidden) hideSuggestions();
+    else if (!$('import').hidden) $('import-cancel').click();
+    else if (!$('chooser').hidden) $('chooser').hidden = true;
+    else if (view?.paused) resume();
+    else if (view) pause();
+  } else if (e.key === ' ' && view?.song && !['INPUT', 'BUTTON'].includes(document.activeElement?.tagName)) {
+    e.preventDefault();
+    if (view.paused) resume(); else pause();
+  }
+});
+
+// Rotating the iPad: redraw the Progress charts at the new width.
+let resizeTimer = 0;
+window.addEventListener?.('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (!$('progress').hidden) renderProgress(); }, 200);
+});
+
+// Offline support: cache the app so it opens at the piano without Wi-Fi.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* works without it, just not offline */ });
+}
 loadSongs();

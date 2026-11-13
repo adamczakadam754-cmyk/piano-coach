@@ -339,3 +339,26 @@ meter { width: 34%; height: 10px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- search suggestions, recent searches, song filter ---------- */
+.search-wrap { position: relative; z-index: 4; }
+.suggestions {
+  position: absolute; left: 0; right: 0; top: calc(100% + 8px);
+  display: grid; gap: 2px; padding: 8px;
+  background: rgba(22, 24, 36, 0.97); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.8);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  animation: drop 0.22s var(--ease); max-height: 60vh; overflow-y: auto;
+}
+@keyframes drop { from { opacity: 0; transform: translateY(-6px); } }
+.sugg-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 8px 10px 4px; display: flex; align-items: center; gap: 8px; }
+.sugg-item { justify-content: flex-start; text-align: left; border: 0; background: transparent; border-radius: 12px; min-height: 44px; padding: 8px 10px; gap: 10px; width: 100%; }
+.sugg-item:hover, .sugg-item:focus-visible { background: var(--surface-strong); }
+.sugg-item svg { width: 18px; height: 18px; flex: none; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.sugg-item mark { background: none; color: var(--violet); font-weight: 700; }
+.sugg-item small { margin-left: auto; color: var(--cyan); font-size: 12px; }
+.did-you-mean { margin-left: 6px; min-height: 34px; padding: 4px 12px; border-radius: 999px; }
+.chip.clear { background: transparent; border-style: dashed; color: var(--muted); }
+.song-filter { margin-bottom: 12px; }
+.settings label b { color: var(--text); font-weight: 600; }
+#next-song { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }

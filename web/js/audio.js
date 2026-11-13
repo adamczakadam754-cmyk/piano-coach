@@ -35,6 +35,7 @@ export async function startMic(fftSize = 8192) {
     running: () => ctx.state === 'running',
     alive: () => track.readyState === 'live', // iOS ends capture when the app is backgrounded
     resume: () => ctx.resume().catch(() => {}),
+    suspend: () => ctx.suspend().catch(() => {}), // pause: freezes scheduled notes and clicks in place
     // Metronome tick: a pure sine with no overtones, pitched a quarter-tone between piano notes
     // (1520 Hz between F#6/G6, accent 1920 Hz between A#6/B6). A note needs several harmonics,
     // so the detector can't mistake a tick for a key being played.
