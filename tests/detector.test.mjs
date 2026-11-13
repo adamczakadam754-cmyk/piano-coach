@@ -58,7 +58,7 @@ function run(events, seconds) {
     const win = new Float64Array(N);
     win.set(audio.subarray(Math.max(0, end - N), end), N - Math.min(N, end));
     const f = det.process(spectrumDb(win));
-    frames.push({ t: end / SR, heard: [...f.heard], best: f.best, onsets: f.heard.filter(m => f.isOnset(m)) });
+    frames.push({ t: end / SR, heard: [...f.heard], best: f.best, onsets: f.onsets.filter(m => f.heard.includes(m)) });
   }
   return frames;
 }

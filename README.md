@@ -1,8 +1,15 @@
 # Piano Coach
 
 A free piano-practice web app for iPad and iPhone. Stand the device on a real piano. It shows falling
-notes and listens through the microphone, then waits until you've played the right notes before moving on.
-No App Store, no Mac, no MIDI keyboard needed.
+notes and listens through the microphone. No App Store, no Mac, no MIDI keyboard needed.
+
+Three ways to play each song:
+- **Practice**: waits until you've played the right notes before moving on.
+- **Play along**: notes fall at the song's tempo (adjustable 50-120%) after a 4-beat count-in. Each note
+  is judged Perfect / Good / Miss on timing, with a combo counter, a percentage and stars.
+- **Listen**: plays the song so you can hear how it goes, then offers to practise it.
+
+Best scores and stars are remembered per song on each device.
 
 ## Architecture
 
@@ -23,7 +30,8 @@ No App Store, no Mac, no MIDI keyboard needed.
 |---|---|
 | `web/js/audio.js` | Opens the mic with voice processing **off** (it squashes piano) and feeds an `AnalyserNode`. |
 | `web/js/detector.js` | Per frame: for every note E2–C7, checks for tonal peaks at its harmonics. Returns which notes are sounding (`present`), which were just struck (`onset`), and the most prominent one (`best`). |
-| `web/js/follower.js` | Wait mode. A step is done when each of its notes is *freshly struck*: its level rises 6 dB, so a note still ringing from the last step doesn't count. Counts wrong notes and skips. |
+| `web/js/follower.js` | Practice mode. A step is done when each of its notes is *freshly struck*: its level rises 6 dB, so a note still ringing from the last step doesn't count. Also holds `isWrongNote`, the strict "was that really a mistake?" check both modes use. |
+| `web/js/timed.js` | Play along and Listen. Matches each note onset to the nearest expected note within -250/+300 ms (after latency correction), grades it, and counts misses as their windows close. |
 | `web/js/render.js` | Draws falling notes and the keyboard. Yellow = play now, green = heard, red = wrong, purple = what the mic hears. |
 | `web/js/main.js` | Home / practice / done screens, the animation loop, wake lock, sensitivity setting. |
 | `tools/song_tool.py` | Converts `.txt` (easy hand-written format) or `.mid` into song JSON and rebuilds `songs/index.json`. |
@@ -32,10 +40,21 @@ No App Store, no Mac, no MIDI keyboard needed.
 **Why detection works without "real" transcription:** the app knows which notes *should* come next,
 so it only has to confirm them, which is much easier than working out arbitrary chords from scratch.
 The rules that make it robust:
-- A harmonic counts only if it's a sharp peak above both the noise floor and the spectrum 4 bins
-  either side. Hammer noise and neighbouring notes don't qualify.
-- From C3 up, the fundamental is required, because C4+G4 together look like the overtones of C3.
-- Octave-above and fifth-above ghosts are dropped when a lower note explains them.
+- **Tonal peaks only:** a harmonic counts if it's a local maximum above both the *local* noise floor
+  (median per ~140 Hz block, since room noise is much louder in the bass) and the spectrum 4 bins either
+  side. Hammer thumps and neighbouring notes don't qualify.
+- **3 harmonics, fundamental required from C3 up.** One real overtone plus one noise blip isn't a note,
+  and C4+G4 together look like the overtones of C3.
+- **Stable for 3 frames (~50 ms) with hysteresis**, so notes don't flash on and off.
+- **Explaining away:** a note is only "heard" if 2 of its harmonics aren't part of a lower sounding
+  note's harmonic series, and are clearly real (4 dB above threshold). This removes octave, fifth and
+  higher overtone ghosts in general.
+- **Strikes use raw loudness**, not the pass/fail peak test, so a flickering test can't fake a new strike.
+- **A wrong note must be the loudest note**, unrelated to (and not next to) any note you're meant to be
+  playing, at least 300 ms after a correct note, and at most one per 0.8 s.
+
+On a simulated reverberant room (6 rooms, 96 notes), these changes cut ghost note onsets from 108 to 6
+and missed notes from 8 to 3. The wrong-note rules filter out most of the rest.
 
 ## Run it on your PC
 
@@ -45,6 +64,7 @@ python -m http.server 8000
 ```
 Open http://localhost:8000 in Chrome or Edge. The mic works on `localhost` without HTTPS.
 Use **Mic check** and play notes (a piano app on your phone works) to see what the detector hears.
+`python tools/detector_lab.py --demo` shows the detector on a simulated piano in a reverberant room.
 
 ## Put it on the iPad (free)
 
@@ -86,19 +106,22 @@ File names set the order (`01-…`, `02-…`). MIDI files have all tracks merged
 3. If it misses notes, lower `peak_db` (try `--peak-db 7`). If it hears notes that weren't played,
    raise it. Then copy the values into `DEFAULTS` in **both** `tools/detector_lab.py` and `web/js/detector.js`.
 
-The in-app **sensitivity slider** does the same adjustment per device without code changes.
+The in-app **Settings** do this per device without code changes. *Microphone sensitivity* shifts the
+thresholds. *Timing correction* is the delay between playing a note and the app hearing it (~130 ms by
+default). Raise it if Play along keeps calling you late.
 
 ## Tests
 
 ```sh
-python -m pytest tools          # detector (synthetic piano audio) + song tool
-node --test tests/*.test.mjs    # the actual browser detector + follower
+python -m pytest tools          # detector on simulated piano + reverberant rooms, song tool
+node --test tests/*.test.mjs    # the actual browser detector, practice mode, play-along scoring
 ```
 
 ## Known limits / next steps
 
-- Wait mode only. A timed mode (notes move at the song's tempo, scored for timing) fits into `follower.js`.
-- No "listen to the song first" playback yet (Web Audio oscillators would do).
-- A note played an octave *below* the expected one may be accepted.
+- Songs have no left/right-hand information, so all notes are drawn the same colour.
+- A note played an octave away from the expected one may be accepted (deliberately lenient).
+- Listen mode is quieter on iPhone while the mic is open (iOS routes audio for calls); fine on iPad.
+- Best scores live in each device's browser storage, not in the cloud.
 - No offline support or home-screen icon yet (needs a service worker and a PNG `apple-touch-icon`).
 - Real pianos and rooms vary, so expect to tune with `detector_lab.py` on your friend's piano.

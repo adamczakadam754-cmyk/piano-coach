@@ -1,4 +1,6 @@
 // Microphone -> AnalyserNode. Call startMic() from a tap.
+import { midiToFreq } from './notes.js';
+
 export async function startMic(fftSize = 8192) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('No microphone access here. Open the app from its https:// address in Safari.');
@@ -33,6 +35,31 @@ export async function startMic(fftSize = 8192) {
     running: () => ctx.state === 'running',
     alive: () => track.readyState === 'live', // iOS ends capture when the app is backgrounded
     resume: () => ctx.resume().catch(() => {}),
+    // A simple piano-like tone generator for Listen mode. stop() silences everything it scheduled.
+    synth() {
+      const out = ctx.createGain();
+      out.gain.value = 0.25;
+      out.connect(ctx.destination);
+      return {
+        play(midi, delaySec, durSec) {
+          const t0 = ctx.currentTime + delaySec;
+          const t1 = t0 + Math.min(2.5, durSec + 0.5);
+          for (const [mult, amp, type] of [[1, 1, 'triangle'], [2, 0.3, 'sine'], [3, 0.1, 'sine']]) {
+            const osc = ctx.createOscillator();
+            const env = ctx.createGain();
+            osc.type = type;
+            osc.frequency.value = midiToFreq(midi) * mult;
+            env.gain.setValueAtTime(0, t0);
+            env.gain.linearRampToValueAtTime(amp, t0 + 0.005);
+            env.gain.exponentialRampToValueAtTime(0.001, t1);
+            osc.connect(env).connect(out);
+            osc.start(t0);
+            osc.stop(t1 + 0.05);
+          }
+        },
+        stop() { out.disconnect(); },
+      };
+    },
     close() {
       stream.getTracks().forEach(t => t.stop());
       ctx.close().catch(() => {});

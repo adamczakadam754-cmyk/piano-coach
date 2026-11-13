@@ -16,7 +16,8 @@ import numpy as np
 
 # Keep in sync with DEFAULTS in web/js/detector.js.
 DEFAULTS = dict(min_midi=40, max_midi=96, harmonics=6, max_hz=5000,
-                peak_db=10, abs_min_db=-85, attack_db=6, history_frames=15)
+                peak_db=10, hysteresis_db=3, abs_min_db=-85, attack_db=6,
+                history_frames=15, stable_frames=3, floor_block=24, own_margin_db=4)
 WEIGHTS = [1, 0.8, 0.6, 0.5, 0.4, 0.3]
 SILENT = -140.0
 NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -43,18 +44,18 @@ def spectrum_db(samples: np.ndarray) -> np.ndarray:
 class Frame:
     salience: np.ndarray
     level: np.ndarray
-    present: np.ndarray
-    attack: np.ndarray  # being struck: level rose attack_db within the last ~250 ms
-    onset: np.ndarray   # first frame of an attack
-    heard: list
+    present: np.ndarray  # sounding, and stable for stable_frames frames
+    attack: np.ndarray   # being struck: level rose attack_db within the last ~250 ms
+    onset: np.ndarray    # first frame of an attack
+    onsets: list         # notes with an onset this frame
+    heard: list          # present notes minus overtone ghosts
     best: int | None
-    floor: float
 
 
 class Detector:
     def __init__(self, sample_rate: int, fft_size: int = FFT_SIZE, **options):
         self.o = o = {**DEFAULTS, **options}
-        bin_hz = sample_rate / fft_size
+        self.bin_hz = bin_hz = sample_rate / fft_size
         last = fft_size // 2 - 2
         self.notes = list(range(o["min_midi"], o["max_midi"] + 1))
         self.windows = []
@@ -71,54 +72,100 @@ class Detector:
             self.windows.append(w)
         self.floor_lo = math.ceil(60 / bin_hz)
         self.floor_hi = min(last, math.floor(o["max_hz"] / bin_hz))
-        self.history = np.zeros((o["history_frames"], len(self.notes)))
-        self.prev_attack = np.zeros(len(self.notes), dtype=bool)
+        self.blocks = max(1, (self.floor_hi - self.floor_lo + 1) // o["floor_block"])
+        n = len(self.notes)
+        self.history = np.zeros((o["history_frames"], n))
+        self.raw = np.zeros(n, dtype=bool)
+        self.run = np.zeros(n, dtype=int)
+        self.prev_attack = np.zeros(n, dtype=bool)
         self.slot = 0
 
     def process(self, db: np.ndarray) -> Frame:
         o = self.o
         db = np.maximum(np.nan_to_num(db, nan=SILENT, neginf=SILENT), SILENT)
-        band = np.sort(db[self.floor_lo : self.floor_hi + 1])
-        floor = float(band[len(band) // 2])
-        n = len(self.notes)
-        salience, level, present = np.zeros(n), np.zeros(n), np.zeros(n, dtype=bool)
         top = len(db) - 1
+        B = o["floor_block"]
+
+        # Local noise floor: median of each ~140 Hz block. Room noise is far louder in the bass,
+        # so one floor for the whole spectrum lets bass noise through and hides quiet treble.
+        floors = []
+        for b in range(self.blocks):
+            lo = self.floor_lo + b * B
+            hi = self.floor_hi + 1 if b == self.blocks - 1 else lo + B
+            chunk = np.sort(db[lo:hi])
+            floors.append(float(chunk[len(chunk) // 2]))
 
         def at(k):
             return db[max(0, min(top, k))]
 
+        def floor_at(k):
+            return floors[max(0, min(self.blocks - 1, (k - self.floor_lo) // B))]
+
+        n = len(self.notes)
+        salience, level, raw = np.zeros(n), np.zeros(n), np.zeros(n, dtype=bool)
+        peaks = [[] for _ in range(n)]  # bins of each note's qualifying harmonics
         for i, w in enumerate(self.windows):
+            # Hysteresis: once sounding, a note may dip a little without dropping out.
+            thr = o["peak_db"] - (o["hysteresis_db"] if self.raw[i] else 0)
             total = wsum = lvl = 0.0
             hits, odd, fundamental = 0, False, False
             for h, (lo, hi) in enumerate(w):
                 k = lo + int(np.argmax(db[lo : hi + 1]))
                 v = db[k]
-                # Tonal peak: local max, above the floor AND above the spectrum 4 bins either side.
                 is_peak = v >= at(k - 1) and v >= at(k + 1) and v > o["abs_min_db"]
-                p = max(0.0, min(v - floor, v - max(at(k - 4), at(k + 4)))) if is_peak else 0.0
+                p = max(0.0, min(v - floor_at(k), v - max(at(k - 4), at(k + 4)))) if is_peak else 0.0
                 total += WEIGHTS[h] * min(p, 40)
                 wsum += WEIGHTS[h]
-                if p >= o["peak_db"]:
-                    if h < 3:
-                        lvl = max(lvl, v - o["abs_min_db"])
-                    if h < 4:
-                        hits += 1
+                if h < 3:  # raw loudness, NOT gated by the peak test: a flickering test must not look like a new strike
+                    lvl = max(lvl, v - o["abs_min_db"])
+                if p >= thr:
+                    peaks[i].append((k, p))
+                if p >= thr and h < 5:
+                    hits += 1
                     fundamental |= h == 0
-                    odd |= h in (0, 2)
+                    odd |= h in (0, 2, 4)
             salience[i] = total / wsum if wsum else 0.0
-            level[i] = lvl
-            present[i] = hits >= 2 and (fundamental if self.notes[i] >= 48 else odd)
+            level[i] = max(0.0, lvl)
+            # 3 harmonics where the note has them (one real overtone + one noise blip is not a note);
+            # fundamental required from C3 up, because chords supply the upper harmonics of lower notes.
+            need = 3 if len(w) >= 4 else 2
+            raw[i] = hits >= need and (fundamental if self.notes[i] >= 48 else odd)
 
+        self.raw = raw
+        self.run = np.where(raw, self.run + 1, 0)
+        present = self.run >= o["stable_frames"]  # ignore notes that flash up for a frame or two
         attack = present & (level - self.history.min(axis=0) >= o["attack_db"])
         onset = attack & ~self.prev_attack
         self.prev_attack = attack
         self.history[self.slot] = level
         self.slot = (self.slot + 1) % len(self.history)
 
-        heard = [self.notes[i] for i in range(n)
-                 if present[i] and not any(i >= d and present[i - d] for d in (12, 19, 24))]
+        # Explaining away: a note is only "heard" if at least 2 of its harmonics are its own, not
+        # also harmonics of a lower sounding note. Removes octave/fifth/overtone ghosts in general.
+        sounding = [j for j in range(n) if raw[j] or present[j]]
+        heard = []
+        for i in range(n):
+            if not present[i]:
+                continue
+            lower = [midi_to_freq(self.notes[j]) for j in sounding if j < i]
+            own = [p for k, p in peaks[i] if not any(self._is_harmonic(k * self.bin_hz, f0) for f0 in lower)]
+            # Own harmonics must be clearly real: random noise peaks reach the plain threshold
+            # somewhere in the spectrum every frame.
+            if sum(p >= o["peak_db"] + o["own_margin_db"] for p in own) >= 2:
+                heard.append(self.notes[i])
         best = max(heard, key=lambda m: salience[m - self.notes[0]], default=None)
-        return Frame(salience, level, present, attack, onset, heard, best, floor)
+        onsets = [self.notes[i] for i in range(n) if onset[i]]
+        return Frame(salience, level, present, attack, onset, onsets, heard, best)
+
+    def _is_harmonic(self, f: float, f0: float) -> bool:
+        """Is frequency f (a measured peak) one of f0's harmonics? Allows stretched piano overtones."""
+        r = round(f / f0)
+        if r < 1:
+            return False
+        if abs(f - r * f0) <= 1.5 * self.bin_hz:
+            return True
+        cents = 1200 * math.log2(f / (r * f0))
+        return -35 <= cents <= 35 + 8 * r
 
 
 def analyse(samples: np.ndarray, sample_rate: int, fps: int = 60, **options):
@@ -139,19 +186,38 @@ def read_wav(path: str) -> tuple[np.ndarray, int]:
 
 
 def synth(events, sample_rate: int = 48000, seconds: float = 2.0, noise: float = 3e-3, seed: int = 0):
-    """Piano-ish test audio over room-like noise. events = [(start_s, length_s, [midi, ...]), ...]."""
+    """Piano-like test audio. events = [(start_s, length_s, [midi, ...]), ...].
+
+    Each note has a hammer thump, 3 slightly detuned strings (so it "beats" like a real piano),
+    stretched overtones and random phases, over background noise.
+    """
+    rng = np.random.default_rng(seed)
     t = np.arange(int(seconds * sample_rate)) / sample_rate
-    out = np.random.default_rng(seed).normal(0, noise, t.size)
+    out = rng.normal(0, noise, t.size)
     for start, length, notes in events:
         on = (t >= start) & (t < start + length)
         tt = t[on] - start
-        env = np.minimum(1, tt / 0.005) * np.minimum(1, (start + length - t[on]) / 0.1)  # 100 ms damper release
+        env = np.minimum(1, tt / 0.003) * np.minimum(1, (start + length - t[on]) / 0.1)  # 100 ms damper release
+        out[on] += rng.normal(0, 0.15, tt.size) * np.exp(-tt / 0.012)                    # hammer thump
         for m in notes:
-            f0 = midi_to_freq(m)
             for h in range(1, 9):
-                fh = f0 * h * math.sqrt(1 + 0.0004 * h * h)  # slight inharmonicity, like real strings
-                out[on] += 0.1 / h * env * np.exp(-tt * (0.8 + 0.4 * h)) * np.sin(2 * np.pi * fh * tt)
+                for cents in (-1.5, 0, 1.7):
+                    fh = midi_to_freq(m) * 2 ** (cents / 1200) * h * math.sqrt(1 + 0.0004 * h * h)
+                    out[on] += (0.035 / h * env * np.exp(-tt * (0.8 + 0.4 * h))
+                                * np.sin(2 * np.pi * fh * tt + rng.uniform(0, 2 * np.pi)))
     return out, sample_rate
+
+
+def room(samples: np.ndarray, sample_rate: int, reverb_s: float = 0.9, wet: float = 0.5,
+         gain: float = 0.3, noise: float = 4e-3, seed: int = 0) -> np.ndarray:
+    """Make a clean recording sound like a living room: reverb, distance (gain) and background noise."""
+    rng = np.random.default_rng(seed)
+    n = int(reverb_s * sample_rate)
+    ir = rng.normal(0, 1, n) * np.exp(-6.9 * np.arange(n) / n)
+    ir /= np.sqrt((ir ** 2).sum())
+    size = 2 * len(samples)
+    tail = np.fft.irfft(np.fft.rfft(samples, size) * np.fft.rfft(ir, size))[: len(samples)]
+    return gain * (samples + wet * tail) + rng.normal(0, noise, len(samples))
 
 
 def main() -> None:
@@ -164,14 +230,15 @@ def main() -> None:
     if args.demo:
         samples, sr = synth([(0.2, 0.6, [60]), (1.0, 0.6, [64]), (1.8, 0.6, [67]), (2.6, 1.0, [60, 64, 67])],
                             seconds=4.0)
-        print("played: C4 at 0.20s, E4 at 1.00s, G4 at 1.80s, C4+E4+G4 at 2.60s\n")
+        samples = room(samples, sr)
+        print("played (in a simulated room): C4 at 0.20s, E4 at 1.00s, G4 at 1.80s, C4+E4+G4 at 2.60s\n")
     elif args.wav:
         samples, sr = read_wav(args.wav)
     else:
         ap.error("give a WAV file or --demo")
 
     for t, frame in analyse(samples, sr, peak_db=args.peak_db, attack_db=args.attack_db):
-        new = [m for m in frame.heard if frame.onset[m - DEFAULTS["min_midi"]]]
+        new = [m for m in frame.onsets if m in frame.heard]
         if new:
             print(f"{t:6.2f}s  {' '.join(note_name(m) for m in new)}")
 

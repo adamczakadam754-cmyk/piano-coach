@@ -15,16 +15,38 @@
 <body>
   <main id="home" class="screen">
     <h1>Piano Coach</h1>
-    <p class="sub">Stand the iPad on the piano and play. It listens and waits for the right notes.</p>
+    <p class="sub">Stand the iPad on the piano and play. It listens to you.</p>
     <button id="mic-check" class="wide">🎤 Mic check</button>
     <h2>Songs</h2>
     <ul id="song-list" class="songs"></ul>
-    <label class="sens">
-      Microphone sensitivity (raise it if notes are missed, lower it if it hears notes you didn't play)
-      <input id="sensitivity" type="range" min="-6" max="6" step="1" value="0">
-    </label>
+
+    <details class="settings">
+      <summary>Settings</summary>
+      <label>
+        Microphone sensitivity: raise it if notes are missed, lower it if it hears notes you didn't play
+        <input id="sensitivity" type="range" min="-6" max="6" step="1" value="0">
+      </label>
+      <label>
+        Timing correction <span id="latency-value"></span>: raise it if Play along keeps saying you're late
+        <input id="latency" type="range" min="0" max="300" step="10" value="130">
+      </label>
+    </details>
     <p id="home-error" class="error" role="alert" hidden></p>
   </main>
+
+  <div id="chooser" class="overlay" hidden>
+    <div class="card" role="dialog" aria-labelledby="chooser-title">
+      <h2 id="chooser-title"></h2>
+      <button class="mode" data-mode="wait">🎯 Practice<small></small></button>
+      <button class="mode" data-mode="timed">⏱️ Play along<small></small></button>
+      <button class="mode" data-mode="listen">🔊 Listen<small></small></button>
+      <label class="tempo">
+        Speed for Play along &amp; Listen: <span id="tempo-value"></span>
+        <input id="tempo" type="range" min="50" max="120" step="5" value="100">
+      </label>
+      <button id="chooser-close">Cancel</button>
+    </div>
+  </div>
 
   <section id="practice" class="screen" hidden>
     <header class="hud">
@@ -35,11 +57,13 @@
     <div class="stage-box"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
     <footer class="status">
       <span>Hearing: <strong id="heard" aria-live="polite">–</strong></span>
-      <meter id="level" min="0" max="50" value="0" aria-label="Input level"></meter>
+      <meter id="level" min="0" max="60" value="0" aria-label="Input level"></meter>
     </footer>
     <div id="done" class="overlay" hidden>
       <div class="card" role="dialog" aria-labelledby="done-title">
         <h2 id="done-title">Well done!</h2>
+        <p id="done-stars" class="stars"></p>
+        <p id="done-best" class="best" hidden>New best!</p>
         <p id="done-stats"></p>
         <button id="again">Play again</button>
         <button id="done-back">Back to songs</button>

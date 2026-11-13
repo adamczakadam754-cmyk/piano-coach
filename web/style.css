@@ -46,7 +46,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid #facc15; outline-
 .songs { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .songs button { width: 100%; display: flex; justify-content: space-between; align-items: center; text-align: left; }
 .songs small { color: var(--muted); }
-.sens { display: flex; flex-direction: column; gap: 8px; margin-top: 24px; color: var(--muted); font-size: 15px; }
+.settings { margin-top: 24px; color: var(--muted); font-size: 15px; }
+.settings summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--text); }
+.settings label, .tempo { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 15px; text-align: left; }
+.mode { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; }
+.mode small { color: var(--muted); font-size: 14px; }
+.stars { font-size: 36px; color: #facc15; letter-spacing: 4px; }
+.best { color: #22c55e; font-weight: 700; }
 .error { color: var(--bad); }
 
 #practice { display: flex; flex-direction: column; gap: 8px; }

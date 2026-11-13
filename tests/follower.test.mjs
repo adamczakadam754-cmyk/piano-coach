@@ -1,14 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFollower } from '../web/js/follower.js';
+import { frame } from './fake-frame.mjs';
 
-// A fake detector frame: levels in dB, a note is "present" at >= 10, onsets listed explicitly.
-const frame = (levels, onsets = []) => ({
-  heard: Object.keys(levels).map(Number).filter(m => levels[m] >= 10),
-  levelOf: m => levels[m] ?? 0,
-  isPresent: m => (levels[m] ?? 0) >= 10,
-  isOnset: m => onsets.includes(m),
-});
 const song = steps => ({ steps: steps.map((notes, i) => ({ t: i, d: 1, notes })) });
 const types = events => events.map(e => e.type);
 
@@ -18,6 +12,7 @@ test('advances on the right note and finishes', () => {
   assert.deepEqual(types(f.update(frame({ 60: 30 }), 100)), ['hit', 'step']);
   assert.deepEqual(types(f.update(frame({ 60: 25, 62: 30 }), 200)), ['hit', 'done']);
   assert.equal(f.done, true);
+  assert.equal(f.score(), 1);
 });
 
 test('a chord needs every note', () => {
@@ -36,13 +31,43 @@ test('a repeated note must be struck again, ringing does not count', () => {
   assert.deepEqual(types(f.update(frame({ 60: 38 }), 300)), ['hit', 'done']); // struck again
 });
 
-test('wrong notes are counted once, not right after a step change', () => {
+test('a clear wrong note is counted', () => {
   const f = createFollower(song([[60], [62]]));
   f.update(frame({ 60: 30 }), 0); // -> step 1, quiet for 450 ms
-  assert.deepEqual(f.update(frame({ 65: 30 }, [65]), 100), []);
-  assert.deepEqual(types(f.update(frame({ 65: 30 }, [65]), 600)), ['wrong']);
-  assert.deepEqual(f.update(frame({ 65: 30 }, [65]), 700), []); // same strike, debounced
+  assert.deepEqual(f.update(frame({ 69: 30 }, [69]), 100), []); // too soon after the step change
+  assert.deepEqual(types(f.update(frame({ 69: 30 }, [69]), 600)), ['wrong']);
   assert.equal(f.wrong, 1);
+});
+
+test('a burst of different ghost notes counts at most once', () => {
+  const f = createFollower(song([[60], [62]]));
+  f.update(frame({ 60: 30 }), 0);
+  let wrong = 0;
+  for (const [i, m] of [69, 71, 74, 77, 79].entries()) {
+    wrong += f.update(frame({ [m]: 30 }, [m]), 600 + i * 100).length;
+  }
+  assert.equal(wrong, 1);
+});
+
+test('overtones of the expected note are not wrong', () => {
+  const f = createFollower(song([[60]]));
+  assert.deepEqual(f.update(frame({ 72: 30 }, [72]), 1000), []); // octave above
+  assert.deepEqual(f.update(frame({ 79: 30 }, [79]), 1900), []); // octave + fifth
+  assert.equal(f.wrong, 0);
+});
+
+test('spill-over next to a sounding note is not wrong', () => {
+  const f = createFollower(song([[60], [62]]));
+  f.update(frame({ 60: 30 }), 0);                                     // C4 played, now waiting for D4
+  assert.deepEqual(f.update(frame({ 61: 30, 60: 25 }, [61]), 1000), []); // C#4 blip while C4 still rings
+  assert.equal(f.wrong, 0);
+});
+
+test('a note that is struck but not the loudest is not wrong', () => {
+  const f = createFollower(song([[60], [62]]));
+  f.update(frame({ 60: 30 }), 0);
+  assert.deepEqual(f.update(frame({ 69: 15, 60: 30 }, [69]), 1000), []);
+  assert.equal(f.wrong, 0);
 });
 
 test('skip moves on and is counted', () => {
@@ -50,4 +75,5 @@ test('skip moves on and is counted', () => {
   assert.deepEqual(types(f.skip(null, 0)), ['step']);
   assert.deepEqual(types(f.skip(null, 10)), ['done']);
   assert.equal(f.skipped, 2);
+  assert.equal(f.score(), 0);
 });

@@ -1,0 +1,5 @@
+title: Ode to Joy (both hands)
+bpm: 90
+# Left hand plays the low note at the start of each bar. Beethoven, public domain.
+C3+E4 E4 F4 G4 G3+G4 F4 E4 D4 C3+C4 C4 D4 E4 G3+E4:1.5 D4:0.5 D4:2
+C3+E4 E4 F4 G4 G3+G4 F4 E4 D4 C3+C4 C4 D4 E4 G3+D4:1.5 C4:0.5 C3+C4:2

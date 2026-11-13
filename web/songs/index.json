@@ -18,5 +18,20 @@
     "file": "04-first-chords.json",
     "title": "First Chords",
     "steps": 8
+  },
+  {
+    "file": "05-mary-had-a-little-lamb.json",
+    "title": "Mary Had a Little Lamb",
+    "steps": 26
+  },
+  {
+    "file": "06-jingle-bells.json",
+    "title": "Jingle Bells (chorus)",
+    "steps": 26
+  },
+  {
+    "file": "07-ode-to-joy-two-hands.json",
+    "title": "Ode to Joy (both hands)",
+    "steps": 30
   }
 ]

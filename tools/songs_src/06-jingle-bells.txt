@@ -1,0 +1,5 @@
+title: Jingle Bells (chorus)
+bpm: 110
+# James Lord Pierpont, 1857, public domain.
+E4 E4 E4:2 E4 E4 E4:2 E4 G4 C4:1.5 D4:0.5 E4:4
+F4 F4 F4:1.5 F4:0.5 F4 E4 E4 E4:0.5 E4:0.5 E4 D4 D4 E4 D4:2 G4:2
