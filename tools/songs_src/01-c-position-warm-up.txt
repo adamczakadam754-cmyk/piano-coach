@@ -1,0 +1,5 @@
+title: C Position Warm-up
+bpm: 80
+# Right thumb on middle C (C4), one finger per key.
+C4 D4 E4 F4 G4:2 G4 G4
+G4 F4 E4 D4 C4:2 C4 C4

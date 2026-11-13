@@ -1,0 +1,22 @@
+[
+  {
+    "file": "01-c-position-warm-up.json",
+    "title": "C Position Warm-up",
+    "steps": 14
+  },
+  {
+    "file": "02-ode-to-joy.json",
+    "title": "Ode to Joy",
+    "steps": 30
+  },
+  {
+    "file": "03-twinkle-twinkle.json",
+    "title": "Twinkle Twinkle Little Star",
+    "steps": 42
+  },
+  {
+    "file": "04-first-chords.json",
+    "title": "First Chords",
+    "steps": 8
+  }
+]

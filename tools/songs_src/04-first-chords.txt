@@ -1,0 +1,5 @@
+title: First Chords
+bpm: 70
+# Three-note chords near middle C. Press all keys together.
+C4+E4+G4:2 C4+F4+A4:2 B3+D4+G4:2 C4+E4+G4:4
+C4+E4+G4:2 C4+F4+A4:2 B3+D4+G4:2 C4+E4+G4:4

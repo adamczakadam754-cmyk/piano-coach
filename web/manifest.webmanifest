@@ -1,0 +1,8 @@
+{
+  "name": "Piano Coach",
+  "short_name": "Piano",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#14161c",
+  "theme_color": "#14161c"
+}

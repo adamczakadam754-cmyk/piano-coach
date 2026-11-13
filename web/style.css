@@ -1,0 +1,66 @@
+:root {
+  color-scheme: dark;
+  --bg: #14161c;
+  --panel: #1d2029;
+  --border: #2e3240;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --bad: #f87171;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.4 system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+[hidden] { display: none !important; }
+
+.screen {
+  height: 100%;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+#home { max-width: 640px; margin: 0 auto; overflow-y: auto; }
+h1 { margin: 8px 0 4px; }
+.sub { color: var(--muted); margin-top: 0; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 16px;
+  min-height: 44px;
+  cursor: pointer;
+}
+button:active { transform: scale(0.98); }
+button:focus-visible, input:focus-visible { outline: 2px solid #facc15; outline-offset: 2px; }
+.wide { width: 100%; }
+
+.songs { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.songs button { width: 100%; display: flex; justify-content: space-between; align-items: center; text-align: left; }
+.songs small { color: var(--muted); }
+.sens { display: flex; flex-direction: column; gap: 8px; margin-top: 24px; color: var(--muted); font-size: 15px; }
+.error { color: var(--bad); }
+
+#practice { display: flex; flex-direction: column; gap: 8px; }
+.hud { display: flex; align-items: center; gap: 12px; }
+.hud-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.hud-title strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#progress { color: var(--muted); font-size: 14px; }
+/* The canvas is taken out of layout: render.js sets its pixel size from its displayed size,
+   and if its pixel size could also affect layout it would grow a bit more every frame. */
+.stage-box { flex: 1; min-height: 0; position: relative; }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: 12px; }
+.status { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); }
+meter { width: 40%; }
+
+.overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 0.6); }
+.card { width: 100%; max-width: 360px; display: grid; gap: 12px; padding: 24px; text-align: center; background: var(--panel); border-radius: 16px; }
+.card h2, .card p { margin: 0; }

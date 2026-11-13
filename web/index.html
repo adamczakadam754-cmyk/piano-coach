@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#14161c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>Piano Coach</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <main id="home" class="screen">
+    <h1>Piano Coach</h1>
+    <p class="sub">Stand the iPad on the piano and play. It listens and waits for the right notes.</p>
+    <button id="mic-check" class="wide">🎤 Mic check</button>
+    <h2>Songs</h2>
+    <ul id="song-list" class="songs"></ul>
+    <label class="sens">
+      Microphone sensitivity (raise it if notes are missed, lower it if it hears notes you didn't play)
+      <input id="sensitivity" type="range" min="-6" max="6" step="1" value="0">
+    </label>
+    <p id="home-error" class="error" role="alert" hidden></p>
+  </main>
+
+  <section id="practice" class="screen" hidden>
+    <header class="hud">
+      <button id="back">‹ Songs</button>
+      <div class="hud-title"><strong id="song-title"></strong><span id="progress"></span></div>
+      <button id="skip">Skip ›</button>
+    </header>
+    <div class="stage-box"><canvas id="stage" aria-label="Falling notes and piano keyboard"></canvas></div>
+    <footer class="status">
+      <span>Hearing: <strong id="heard" aria-live="polite">–</strong></span>
+      <meter id="level" min="0" max="50" value="0" aria-label="Input level"></meter>
+    </footer>
+    <div id="done" class="overlay" hidden>
+      <div class="card" role="dialog" aria-labelledby="done-title">
+        <h2 id="done-title">Well done!</h2>
+        <p id="done-stats"></p>
+        <button id="again">Play again</button>
+        <button id="done-back">Back to songs</button>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
